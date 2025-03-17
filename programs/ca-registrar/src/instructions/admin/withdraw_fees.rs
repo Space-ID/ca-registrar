@@ -1,23 +1,29 @@
 #![allow(unexpected_cfgs)]
 use anchor_lang::prelude::*;
-use anchor_lang::system_program::{self, transfer};
 use crate::constants::*;
 use crate::state::*;
 use crate::error::CaRegistrarError;
 
 /// Account constraints for withdrawing fees instruction
 /// 
-/// This instruction allows the program administrator to withdraw SOL from the program state account.
+/// This instruction allows anyone to withdraw SOL from the program state account.
+/// The withdrawn funds will be sent to the authority account.
 #[derive(Accounts)]
 pub struct WithdrawFeesAccountConstraints<'info> {
-    /// Program administrator, must match the authority in ProgramState
+    /// caller - can be anyone
     #[account(mut)]
-    pub authority: Signer<'info>,
+    pub signer: Signer<'info>,
+    
+    /// fee receiver - must be the authority in ProgramState
+    #[account(
+        mut, 
+        address = program_state.authority
+    )]
+    pub authority: SystemAccount<'info>,
     
     /// Program state account
     #[account(
         mut,
-        has_one = authority @ CaRegistrarError::NotProgramAuthority,
         seeds = [PROGRAM_STATE_SEED],
         bump = program_state.bump
     )]
@@ -26,60 +32,31 @@ pub struct WithdrawFeesAccountConstraints<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// Withdraw SOL from program state account
-/// 
-/// # Parameters
-/// * `context` - Instruction context, containing all relevant accounts
-/// * `amount` - Amount to withdraw (in lamports), if 0 then withdraw all available balance
+/// Withdraw all available SOL from program state account while preserving rent-exempt amount
 pub fn withdraw_fees_handler(
     context: Context<WithdrawFeesAccountConstraints>,
-    amount: u64,
 ) -> Result<()> {
-    let program_state = &context.accounts.program_state;
-    let authority = &context.accounts.authority;
-    
-    // Determine amount to withdraw
-    let withdraw_amount = if amount == 0 {
-        // Withdraw all balance, but reserve enough for rent exemption
-        let rent = Rent::get()?;
-        // Calculate minimum rent exemption balance needed for program state account
-        let min_rent = rent.minimum_balance(ANCHOR_DISCRIMINATOR + ProgramState::INIT_SPACE);
-        
-        program_state.to_account_info().lamports()
-            .checked_sub(min_rent)
-            .ok_or(error!(CaRegistrarError::InsufficientPayment))?
-    } else {
-        // Withdraw specified amount
-        let available = program_state.to_account_info().lamports()
-            .checked_sub(Rent::get()?.minimum_balance(ANCHOR_DISCRIMINATOR + ProgramState::INIT_SPACE))
-            .ok_or(error!(CaRegistrarError::InsufficientPayment))?;
-            
-        require!(
-            available >= amount,
-            CaRegistrarError::InsufficientPayment
-        );
-        amount
-    };
+    // Get account infos
+    let program_state_info = context.accounts.program_state.to_account_info();
+    let authority_info = context.accounts.authority.to_account_info();
 
-    let signer_seeds: &[&[&[u8]]] = &[&[
-        PROGRAM_STATE_SEED,
-        &[context.accounts.program_state.bump],
-    ]];
+    // Calculate minimum rent-exempt balance needed
+    let rent = Rent::get()?;
+    let min_rent = rent.minimum_balance(ANCHOR_DISCRIMINATOR + ProgramState::INIT_SPACE);
 
-    // Transfer fee to administrator account using PDA signature
-    transfer(
-        CpiContext::new_with_signer(
-            context.accounts.system_program.to_account_info(),
-            system_program::Transfer {
-                from: context.accounts.program_state.to_account_info(),
-                to: authority.to_account_info(),
-            },
-            signer_seeds,
-        ),
-        withdraw_amount,
-    )?;
-    
+    // Calculate available amount to withdraw
+    let current_balance = program_state_info.lamports();
+    let withdraw_amount = current_balance
+        .checked_sub(min_rent)
+        .ok_or(error!(CaRegistrarError::InsufficientPayment))?;
+
+    // Verify there are funds to withdraw
+    require!(withdraw_amount > 0, CaRegistrarError::InsufficientPayment);
+
+    // Transfer all available balance except rent-exempt amount
+    **program_state_info.try_borrow_mut_lamports()? -= withdraw_amount;
+    **authority_info.try_borrow_mut_lamports()? += withdraw_amount;
+
     msg!("Withdrew {} lamports to authority", withdraw_amount);
-    
     Ok(())
-} 
+}

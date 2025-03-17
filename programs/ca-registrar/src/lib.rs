@@ -53,9 +53,8 @@ pub mod ca_registrar {
 
     pub fn withdraw_fees(
         context: Context<WithdrawFeesAccountConstraints>, 
-        amount: u64,
     ) -> Result<()> {
-        withdraw_fees_handler(context, amount)
+        withdraw_fees_handler(context)
     }
 
     pub fn register_domain(
