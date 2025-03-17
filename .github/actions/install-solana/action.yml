@@ -12,13 +12,19 @@ runs:
           ~/.cache/solana
           ~/.local/share/solana
           ~/.solana
-        key: ${{ runner.os }}-solana-24.04
+        key: ${{ runner.os }}-solana
 
     - name: Install Solana
       if: steps.cache-solana.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        curl --proto '=https' --tlsv1.2 -sSfL https://solana-install.solana.workers.dev | bash
-        echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+        sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+        export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
+        source "$HOME/.cargo/env"
         solana --version
+        solana-keygen new --no-bip39-passphrase
+        
+        cargo install --git https://github.com/coral-xyz/anchor avm --force
+        avm install 0.30.1
         avm use 0.30.1
+        anchor --version
