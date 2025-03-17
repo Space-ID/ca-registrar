@@ -1,0 +1,24 @@
+name: 'Install Solana'
+description: 'Install Solana CLI'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Cache Solana Install
+      id: cache-solana
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/solana
+          ~/.local/share/solana
+          ~/.solana
+        key: ${{ runner.os }}-solana-24.04
+
+    - name: Install Solana
+      if: steps.cache-solana.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        curl --proto '=https' --tlsv1.2 -sSfL https://solana-install.solana.workers.dev | bash
+        echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+        solana --version
+        avm use 0.30.1
