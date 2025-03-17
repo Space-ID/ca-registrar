@@ -260,4 +260,279 @@ describe("ca-registrar", () => {
       assert.ok(error.message.indexOf("owner") > -1 || error.message.indexOf("0x102") > -1);
     }
   });
+
+  it("Owner can transfer domain to another wallet", async () => {
+    // Use previously registered test domain
+    const domainName = "testdomain";
+    
+    // Calculate domain record PDA
+    const DOMAIN_RECORD_SEED = Buffer.from("domain");
+    const [domainRecordAccount] = anchor.web3.PublicKey.findProgramAddressSync(
+      [DOMAIN_RECORD_SEED, Buffer.from(domainName)],
+      authorityProgram.programId
+    );
+    
+    // Create a new recipient wallet (could be buyer in this case)
+    const recipientWallet = buyerWallet; // Reusing buyer wallet as recipient
+    
+    try {
+      // Before transfer, verify current owner
+      let domainRecord = await authorityProgram.account.domainRecord.fetch(domainRecordAccount);
+      console.log("Current domain owner:", domainRecord.owner.toString());
+      assert.equal(domainRecord.owner.toString(), ownerWallet.publicKey.toString());
+      
+      // Transfer domain from owner to recipient
+      const tx = await ownerProgram.methods
+        .transferDomain(
+          domainName,
+          recipientWallet.publicKey
+        )
+        .accounts({
+          // @ts-expect-error - Anchor naming convention issue
+          owner: ownerWallet.publicKey,
+          domainRecord: domainRecordAccount,
+        })
+        .rpc({ skipPreflight: true, commitment: "confirmed" });
+      
+      console.log("Domain transfer transaction:", tx);
+      
+      // Verify the new owner
+      domainRecord = await authorityProgram.account.domainRecord.fetch(domainRecordAccount);
+      console.log("New domain owner:", domainRecord.owner.toString());
+      
+      // Execute assertions to verify transfer results
+      assert.equal(domainRecord.owner.toString(), recipientWallet.publicKey.toString());
+      
+      console.log("Domain transfer completed successfully");
+      
+    } catch (error) {
+      console.error("Error transferring domain:", error);
+      throw error;
+    }
+  });
+
+  // Test that the previous owner can no longer make changes to the domain
+  it("Previous owner cannot update domain after transfer", async () => {
+    const domainName = "testdomain";
+    
+    // Calculate domain record PDA
+    const DOMAIN_RECORD_SEED = Buffer.from("domain");
+    const [domainRecordAccount] = anchor.web3.PublicKey.findProgramAddressSync(
+      [DOMAIN_RECORD_SEED, Buffer.from(domainName)],
+      authorityProgram.programId
+    );
+    
+    // Try to update address list using previous owner wallet (should fail)
+    try {
+      await ownerProgram.methods
+        .updateAddresses(
+          domainName,
+          [
+            {
+              // @ts-expect-error - Anchor IDL and TypeScript naming inconsistency
+              chainId: new BN(0),
+              address: ownerWallet.publicKey.toBase58(),
+            }
+          ]
+        )
+        .accounts({
+          // @ts-expect-error - Anchor naming convention issue
+          owner: ownerWallet.publicKey,
+          domainRecord: domainRecordAccount,
+        })
+        .rpc();
+      
+      // If execution reaches here, test should fail
+      assert.fail("Transaction should have failed - previous owner no longer has control");
+    } catch (error) {
+      // Expected error behavior
+      console.log("Expected error occurred:", error.message);
+      // Verify error message contains owner reference
+      assert.ok(error.message.indexOf("owner") > -1 || error.message.indexOf("0x102") > -1);
+    }
+  });
+
+  // Test that the new owner (buyerWallet) can update the domain
+  it("New owner can update domain after transfer", async () => {
+    const domainName = "testdomain";
+    
+    // Calculate domain record PDA
+    const DOMAIN_RECORD_SEED = Buffer.from("domain");
+    const [domainRecordAccount] = anchor.web3.PublicKey.findProgramAddressSync(
+      [DOMAIN_RECORD_SEED, Buffer.from(domainName)],
+      authorityProgram.programId
+    );
+    
+    // Create new blockchain address list
+    const newAddresses = [
+      {
+        // @ts-expect-error - Anchor IDL and TypeScript naming inconsistency
+        chainId: new BN(0), // Solana
+        address: buyerWallet.publicKey.toBase58(), // Now using buyer's address
+      },
+      {
+        // @ts-expect-error - Anchor IDL and TypeScript naming inconsistency
+        chainId: new BN(3), // Some other chain
+        address: "0xabcdef1234567890abcdef1234567890abcdef12",
+      }
+    ];
+    
+    try {
+      // New owner updates domain addresses
+      const tx = await buyerProgram.methods
+        .updateAddresses(
+          domainName,
+          newAddresses
+        )
+        .accounts({
+          // @ts-expect-error - Anchor naming convention issue
+          owner: buyerWallet.publicKey,
+          domainRecord: domainRecordAccount,
+        })
+        .rpc({ skipPreflight: true, commitment: "confirmed" });
+      
+      console.log("New owner's address update transaction:", tx);
+      
+      // Fetch and verify updated domain record
+      const domainRecord = await authorityProgram.account.domainRecord.fetch(domainRecordAccount);
+      
+      // Execute assertions to verify results
+      assert.equal(domainRecord.addresses.length, 2);
+      assert.equal(domainRecord.addresses[1].chainId, new BN(3));
+      assert.equal(domainRecord.addresses[0].address, buyerWallet.publicKey.toBase58());
+      
+      console.log("New owner updated domain addresses successfully");
+      
+    } catch (error) {
+      console.error("Error updating domain with new owner:", error);
+      throw error;
+    }
+  });
+
+  // Test domain renewal functionality
+  it("New owner can renew domain", async () => {
+    // Use previously registered and transferred test domain
+    const domainName = "testdomain";
+    const renewYears = new BN(2); // Renew for 2 more years
+    
+    // Calculate domain record PDA
+    const DOMAIN_RECORD_SEED = Buffer.from("domain");
+    const [domainRecordAccount] = anchor.web3.PublicKey.findProgramAddressSync(
+      [DOMAIN_RECORD_SEED, Buffer.from(domainName)],
+      authorityProgram.programId
+    );
+    
+    try {
+      // Get current expiry timestamp before renewal
+      let domainRecord = await authorityProgram.account.domainRecord.fetch(domainRecordAccount);
+      const oldExpiryTimestamp = domainRecord.expiryTimestamp;
+      console.log("Current expiry timestamp:", new Date(oldExpiryTimestamp * 1000).toISOString());
+      
+      // Renew the domain
+      const tx = await buyerProgram.methods
+        .renewDomain(
+          domainName,
+          renewYears
+        )
+        .accounts({
+          // @ts-expect-error - Anchor naming convention issue
+          payer: buyerWallet.publicKey,
+          domainRecord: domainRecordAccount,
+          programState: programStateAccount,
+          pythPriceUpdate: solUsdPriceFeedAccount,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .rpc({ skipPreflight: true, commitment: "confirmed" });
+      
+      console.log("Domain renewal transaction:", tx);
+      
+      // Get updated domain record
+      domainRecord = await authorityProgram.account.domainRecord.fetch(domainRecordAccount);
+      const newExpiryTimestamp = domainRecord.expiryTimestamp;
+      console.log("New expiry timestamp:", new Date(newExpiryTimestamp * 1000).toISOString());
+      
+      // Verify the expiry timestamp was extended
+      // Expected extension is renewYears * SECONDS_PER_YEAR (31,536,000 seconds per year)
+      const SECONDS_PER_YEAR = 31_536_000; 
+      const expectedExtension = renewYears.toNumber() * SECONDS_PER_YEAR;
+      
+      // The new expiry should be approximately the old expiry + expectedExtension
+      // We use approximately because there might be small timing differences
+      const actualExtension = newExpiryTimestamp - oldExpiryTimestamp;
+      
+      console.log("Expected extension (seconds):", expectedExtension);
+      console.log("Actual extension (seconds):", actualExtension);
+      
+      // Assert that the expiry was extended by the correct amount (with small tolerance)
+      assert.approximately(actualExtension, expectedExtension, 10); // Allow 10 seconds tolerance
+      
+      console.log("Domain renewed successfully for", renewYears.toString(), "years");
+      
+    } catch (error) {
+      console.error("Error renewing domain:", error);
+      throw error;
+    }
+  });
+
+  // Test renewal by a non-owner (should still work as renewal doesn't require ownership)
+  it("Anyone can renew domain (even non-owner)", async () => {
+    // Use the same test domain
+    const domainName = "testdomain";
+    const renewYears = new BN(1); // Renew for 1 more year
+    
+    // Calculate domain record PDA
+    const DOMAIN_RECORD_SEED = Buffer.from("domain");
+    const [domainRecordAccount] = anchor.web3.PublicKey.findProgramAddressSync(
+      [DOMAIN_RECORD_SEED, Buffer.from(domainName)],
+      authorityProgram.programId
+    );
+    
+    try {
+      // Get current expiry timestamp before renewal
+      let domainRecord = await authorityProgram.account.domainRecord.fetch(domainRecordAccount);
+      const oldExpiryTimestamp = domainRecord.expiryTimestamp;
+      console.log("Current expiry timestamp:", new Date(oldExpiryTimestamp * 1000).toISOString());
+      
+      // Renew the domain using the previous owner (now non-owner)
+      const tx = await ownerProgram.methods
+        .renewDomain(
+          domainName,
+          renewYears
+        )
+        .accounts({
+          // @ts-expect-error - Anchor naming convention issue
+          payer: ownerWallet.publicKey, // Previous owner is paying for renewal
+          domainRecord: domainRecordAccount,
+          programState: programStateAccount,
+          pythPriceUpdate: solUsdPriceFeedAccount,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .rpc({ skipPreflight: true, commitment: "confirmed" });
+      
+      console.log("Domain renewal by non-owner transaction:", tx);
+      
+      // Get updated domain record
+      domainRecord = await authorityProgram.account.domainRecord.fetch(domainRecordAccount);
+      const newExpiryTimestamp = domainRecord.expiryTimestamp;
+      console.log("New expiry timestamp:", new Date(newExpiryTimestamp * 1000).toISOString());
+      
+      // Verify the owner hasn't changed
+      assert.equal(domainRecord.owner.toString(), buyerWallet.publicKey.toString(),
+        "Owner should not change during renewal");
+      
+      // Verify the expiry timestamp was extended
+      const SECONDS_PER_YEAR = 31_536_000;
+      const expectedExtension = renewYears.toNumber() * SECONDS_PER_YEAR;
+      const actualExtension = newExpiryTimestamp - oldExpiryTimestamp;
+      
+      // Assert that the expiry was extended by the correct amount
+      assert.approximately(actualExtension, expectedExtension, 10); // Allow 10 seconds tolerance
+      
+      console.log("Domain renewed successfully by non-owner for", renewYears.toString(), "year");
+      
+    } catch (error) {
+      console.error("Error during non-owner renewal:", error);
+      throw error;
+    }
+  });
 });

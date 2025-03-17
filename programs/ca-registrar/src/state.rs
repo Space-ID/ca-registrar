@@ -52,8 +52,8 @@ pub struct DomainRecord {
     /// Timestamp when domain was initially registered
     pub registration_timestamp: i64,
     
-    /// Addresses for different blockchains associated with this domain
-    #[max_len(20)]
+    /// Addresses for different blockchains associated with this domain, max 10
+    #[max_len(10)]
     pub addresses: Vec<ChainAddress>,
     
     /// Bump seed for PDA derivation

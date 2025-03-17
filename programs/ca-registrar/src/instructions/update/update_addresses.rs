@@ -41,7 +41,7 @@ pub fn update_addresses_handler(
 ) -> Result<()> {
     // Validate address count
     require!(
-        addresses.len() <= 20,
+        addresses.len() <= 10,
         CaRegistrarError::TooManyAddresses
     );
     
