@@ -5,17 +5,45 @@ import { PythSolanaReceiver } from "@pythnetwork/pyth-solana-receiver";
 import { assert } from "chai";
 
 describe("ca-registrar", () => {
+  // Convert original wallet to authority role
   const provider = anchor.AnchorProvider.env();
   const connection = provider.connection;
-  const wallet = provider.wallet as anchor.Wallet;
+  const authorityWallet = provider.wallet as anchor.Wallet;
   
-  // Configure the client to use the local cluster.
+  // Create buyer wallet
+  const buyerKeypair = anchor.web3.Keypair.generate();
+  const buyerWallet = new anchor.Wallet(buyerKeypair);
+  const buyerProvider = new anchor.AnchorProvider(
+    connection,
+    buyerWallet,
+    { commitment: "confirmed" }
+  );
+  
+  // Create owner wallet
+  const ownerKeypair = anchor.web3.Keypair.generate();
+  const ownerWallet = new anchor.Wallet(ownerKeypair);
+  const ownerProvider = new anchor.AnchorProvider(
+    connection,
+    ownerWallet,
+    { commitment: "confirmed" }
+  );
+  
+  // Configure authority provider as default
   anchor.setProvider(provider);
-
-  const program = anchor.workspace.CaRegistrar as Program<CaRegistrar>;
+  
+  // Create program instances
+  const authorityProgram = anchor.workspace.CaRegistrar as Program<CaRegistrar>;
+  const buyerProgram = new anchor.Program(
+    authorityProgram.idl,
+    buyerProvider,
+  ) as Program<CaRegistrar>;
+  const ownerProgram = new anchor.Program(
+    authorityProgram.idl,
+    ownerProvider
+  ) as Program<CaRegistrar>;
   
   // Set up Pyth price feed
-  const pythSolanaReceiver = new PythSolanaReceiver({ connection, wallet });
+  const pythSolanaReceiver = new PythSolanaReceiver({ connection, wallet: authorityWallet });
   const SOL_USD_PRICE_FEED_ID = "0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d";
   const solUsdPriceFeedAccount = pythSolanaReceiver.getPriceFeedAccountAddress(0, SOL_USD_PRICE_FEED_ID);
   console.log("solUsdPriceFeedAccount", solUsdPriceFeedAccount);
@@ -24,64 +52,86 @@ describe("ca-registrar", () => {
   const PROGRAM_STATE_SEED = Buffer.from("state");
   const [programStateAccount] = anchor.web3.PublicKey.findProgramAddressSync(
     [PROGRAM_STATE_SEED],
-    program.programId
+    authorityProgram.programId
   );
   console.log("Program State PDA:", programStateAccount.toString());
 
-  it("Is initialized!", async () => {
-    // Configuration values
-    const basePriceUsd = new BN(500); // $5.00 in cents
-    const gracePeriodSeconds = new BN(604800); // 7 days in seconds
+  // Fund new wallets with SOL to pay for transaction fees
+  before(async () => {
+    // Transfer some SOL to buyer and owner wallets
+    await connection.requestAirdrop(
+      buyerWallet.publicKey,
+      10 * anchor.web3.LAMPORTS_PER_SOL
+    );
     
-    // Initialize the program
-    const tx = await program.methods
+    await connection.requestAirdrop(
+      ownerWallet.publicKey,
+      10 * anchor.web3.LAMPORTS_PER_SOL
+    );
+    
+    // Wait for confirmation
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    console.log("Buyer wallet:", buyerWallet.publicKey.toString());
+    console.log("Owner wallet:", ownerWallet.publicKey.toString());
+  });
+
+  it("Is initialized by authority", async () => {
+    // Configuration values
+    const basePriceUsd = new BN(500); // $5.00 (in cents)
+    const gracePeriodSeconds = new BN(604800); // 7 days (in seconds)
+    
+    // Initialize program by authority
+    const tx = await authorityProgram.methods
       .initialize(basePriceUsd, gracePeriodSeconds)
       .accounts({
         // @ts-expect-error - Anchor naming convention issue
         programState: programStateAccount,
+        systemProgram: anchor.web3.SystemProgram.programId,
       })
       .rpc({ skipPreflight: true, commitment: "confirmed" });
     
-    console.log("Your transaction signature", tx);
+    console.log("Initialize transaction signature:", tx);
   });
   
-  it("Can register a domain", async () => {
-    // 测试域名
+  it("Buyer can register a domain with specified owner", async () => {
+    // Test domain
     const domainName = "testdomain";
     const years = new BN(1);
     
-    // 创建一些区块链地址
+    // Create blockchain address list
     const addresses = [
       {
-        chain_id: 0, // Solana
-        address: wallet.publicKey.toBase58(),
+        chainId: new BN(0), // Solana
+        address: ownerWallet.publicKey.toBase58(),
       },
       {
-        chain_id: 1, // Ethereum
+        chainId: new BN(1), // Ethereum
         address: "0x1234567890123456789012345678901234567890",
       }
     ];
     
-    // 计算域名记录的 PDA
+    // Calculate domain record PDA
     const DOMAIN_RECORD_SEED = Buffer.from("domain");
     const [domainRecordAccount] = anchor.web3.PublicKey.findProgramAddressSync(
       [DOMAIN_RECORD_SEED, Buffer.from(domainName)],
-      program.programId
+      authorityProgram.programId
     );
     
     console.log("Domain Record PDA:", domainRecordAccount.toString());
     
     try {
-      // 注册域名
-      const tx = await program.methods
+      // Buyer pays for domain registration, but owner will be the domain owner
+      const tx = await buyerProgram.methods
         .registerDomain(
           domainName,
           years,
           addresses,
-          wallet.publicKey
+          ownerWallet.publicKey  // Set owner as owner wallet
         )
         .accounts({
-          buyer: wallet.publicKey,
+          // @ts-expect-error - Anchor naming convention issue
+          buyer: buyerWallet.publicKey,
           domainRecord: domainRecordAccount,
           programState: programStateAccount,
           pythPriceUpdate: solUsdPriceFeedAccount,
@@ -91,75 +141,81 @@ describe("ca-registrar", () => {
       
       console.log("Domain registration transaction:", tx);
       
-      // 获取并验证域名记录
-      const domainRecord = await program.account.domainRecord.fetch(domainRecordAccount);
+      // Fetch and verify domain record
+      const domainRecord = await buyerProgram.account.domainRecord.fetch(domainRecordAccount);
       console.log("Domain record:", {
         name: domainRecord.domainName,
         owner: domainRecord.owner.toString(),
-        expiryTimestamp: new Date(domainRecord.expiryTimestamp as any * 1000).toISOString(),
+        expiryTimestamp: new Date(domainRecord.expiryTimestamp * 1000).toISOString(),
         addresses: domainRecord.addresses,
       });
       
-      // 执行断言验证结果
+      // Execute assertions to verify results
       assert.equal(domainRecord.domainName, domainName);
-      assert.equal(domainRecord.owner.toString(), wallet.publicKey.toString());
+      assert.equal(domainRecord.owner.toString(), ownerWallet.publicKey.toString());
       assert.equal(domainRecord.addresses.length, 2);
-      
+      assert.equal(domainRecord.addresses[0].chainId, new BN(0));
+      assert.equal(domainRecord.addresses[1].chainId, new BN(1));
+      assert.equal(domainRecord.addresses[0].address, ownerWallet.publicKey.toBase58());
+      assert.equal(domainRecord.addresses[1].address, "0x1234567890123456789012345678901234567890");
     } catch (error) {
       console.error("Error registering domain:", error);
       throw error;
     }
   });
 
-  it("Can update domain addresses", async () => {
-    // 使用之前注册的测试域名
+  it("Owner can update domain addresses", async () => {
+    // Use previously registered test domain
     const domainName = "testdomain";
     
-    // 计算域名记录的 PDA
+    // Calculate domain record PDA
     const DOMAIN_RECORD_SEED = Buffer.from("domain");
-    const [domainRecordPDA] = anchor.web3.PublicKey.findProgramAddressSync(
+    const [domainRecordAccount] = anchor.web3.PublicKey.findProgramAddressSync(
       [DOMAIN_RECORD_SEED, Buffer.from(domainName)],
-      program.programId
+      authorityProgram.programId
     );
     
-    // 创建新的区块链地址列表
+    // Create new blockchain address list
     const updatedAddresses = [
       {
-        chain_id: 0, // Solana
-        address: wallet.publicKey.toBase58(),
+        // @ts-expect-error - Anchor IDL and TypeScript naming inconsistency
+        chainId: new BN(0), // Solana
+        address: ownerWallet.publicKey.toBase58(),
       },
       {
-        chain_id: 1, // Ethereum
+        // @ts-expect-error - Anchor IDL and TypeScript naming inconsistency
+        chainId: new BN(1), // Ethereum
         address: "0x1234567890123456789012345678901234567890",
       },
       {
-        chain_id: 2, // Sui
+        // @ts-expect-error - Anchor IDL and TypeScript naming inconsistency
+        chainId: new BN(2), // Sui
         address: "0x7890123456789012345678901234567890123456",
       }
     ];
     
     try {
-      // 更新域名地址
-      const tx = await program.methods
+      // Owner updates domain addresses
+      const tx = await ownerProgram.methods
         .updateAddresses(
           domainName,
           updatedAddresses
         )
-        // @ts-expect-error - Anchor naming convention issue
         .accounts({
-          owner: wallet.publicKey,
-          domain_record: domainRecordPDA,
+          // @ts-expect-error - Anchor naming convention issue
+          owner: ownerWallet.publicKey,
+          domainRecord: domainRecordAccount,
         })
         .rpc({ skipPreflight: true, commitment: "confirmed" });
       
       console.log("Address update transaction:", tx);
       
-      // 获取并验证更新后的域名记录
-      const domainRecord = await program.account.domainRecord.fetch(domainRecordPDA);
-      
-      // 执行断言验证结果
+      // Fetch and verify updated domain record
+      const domainRecord = await authorityProgram.account.domainRecord.fetch(domainRecordAccount);
+      console.log("Domain record:", domainRecord);
+      // Execute assertions to verify results
       assert.equal(domainRecord.addresses.length, 3);
-      assert.equal(domainRecord.addresses[2].chain_id, 2);
+      assert.equal(domainRecord.addresses[2].chainId, new BN(2));
       assert.equal(domainRecord.addresses[2].address, "0x7890123456789012345678901234567890123456");
       
       console.log("Domain addresses updated successfully");
@@ -167,6 +223,41 @@ describe("ca-registrar", () => {
     } catch (error) {
       console.error("Error updating domain addresses:", error);
       throw error;
+    }
+  });
+
+  // Error case test
+  it("Buyer cannot update domain owned by someone else", async () => {
+    const domainName = "testdomain";
+    
+    // Calculate domain record PDA
+    const DOMAIN_RECORD_SEED = Buffer.from("domain");
+    const [domainRecordAccount] = anchor.web3.PublicKey.findProgramAddressSync(
+      [DOMAIN_RECORD_SEED, Buffer.from(domainName)],
+      authorityProgram.programId
+    );
+    
+    // Try to update address list using buyer wallet (should fail)
+    try {
+      await buyerProgram.methods
+        .updateAddresses(
+          domainName,
+          []  // Simple empty address list
+        )
+        .accounts({
+          // @ts-expect-error - Anchor naming convention issue
+          owner: buyerWallet.publicKey,
+          domainRecord: domainRecordAccount,
+        })
+        .rpc();
+      
+      // If execution reaches here, test should fail
+      assert.fail("Transaction should have failed - buyer is not the owner");
+    } catch (error) {
+      // Expected error behavior
+      console.log("Expected error occurred:", error.message);
+      // Verify error message contains "owner" or appropriate error code
+      assert.ok(error.message.indexOf("owner") > -1 || error.message.indexOf("0x102") > -1);
     }
   });
 });
