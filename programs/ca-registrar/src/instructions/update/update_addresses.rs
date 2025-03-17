@@ -29,7 +29,6 @@ pub struct UpdateAddressesAccountConstraints<'info> {
 /// 
 /// # Parameters
 /// * `context` - Instruction context, containing all relevant accounts
-/// * `domain_name` - Name of the domain to update (without .ca suffix)
 /// * `addresses` - New list of blockchain addresses, completely replacing the existing list
 /// 
 /// # Errors

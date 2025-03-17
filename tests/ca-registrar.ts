@@ -1,8 +1,8 @@
-// @ts-nocheck
 import * as anchor from "@coral-xyz/anchor";
 import { Program, BN } from "@coral-xyz/anchor";
 import { CaRegistrar } from "../target/types/ca_registrar";
 import { PythSolanaReceiver } from "@pythnetwork/pyth-solana-receiver";
+import { assert } from "chai";
 
 describe("ca-registrar", () => {
   const provider = anchor.AnchorProvider.env();
@@ -36,9 +36,8 @@ describe("ca-registrar", () => {
     // Initialize the program
     const tx = await program.methods
       .initialize(basePriceUsd, gracePeriodSeconds)
-      // @ts-expect-error - Anchor naming convention issue
       .accounts({
-        authority: wallet.publicKey,
+        // @ts-expect-error - Anchor naming convention issue
         programState: programStateAccount,
       })
       .rpc({ skipPreflight: true, commitment: "confirmed" });
@@ -46,4 +45,128 @@ describe("ca-registrar", () => {
     console.log("Your transaction signature", tx);
   });
   
+  it("Can register a domain", async () => {
+    // 测试域名
+    const domainName = "testdomain";
+    const years = new BN(1);
+    
+    // 创建一些区块链地址
+    const addresses = [
+      {
+        chain_id: 0, // Solana
+        address: wallet.publicKey.toBase58(),
+      },
+      {
+        chain_id: 1, // Ethereum
+        address: "0x1234567890123456789012345678901234567890",
+      }
+    ];
+    
+    // 计算域名记录的 PDA
+    const DOMAIN_RECORD_SEED = Buffer.from("domain");
+    const [domainRecordAccount] = anchor.web3.PublicKey.findProgramAddressSync(
+      [DOMAIN_RECORD_SEED, Buffer.from(domainName)],
+      program.programId
+    );
+    
+    console.log("Domain Record PDA:", domainRecordAccount.toString());
+    
+    try {
+      // 注册域名
+      const tx = await program.methods
+        .registerDomain(
+          domainName,
+          years,
+          addresses,
+          wallet.publicKey
+        )
+        .accounts({
+          buyer: wallet.publicKey,
+          domainRecord: domainRecordAccount,
+          programState: programStateAccount,
+          pythPriceUpdate: solUsdPriceFeedAccount,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .rpc({ skipPreflight: true, commitment: "confirmed" });
+      
+      console.log("Domain registration transaction:", tx);
+      
+      // 获取并验证域名记录
+      const domainRecord = await program.account.domainRecord.fetch(domainRecordAccount);
+      console.log("Domain record:", {
+        name: domainRecord.domainName,
+        owner: domainRecord.owner.toString(),
+        expiryTimestamp: new Date(domainRecord.expiryTimestamp as any * 1000).toISOString(),
+        addresses: domainRecord.addresses,
+      });
+      
+      // 执行断言验证结果
+      assert.equal(domainRecord.domainName, domainName);
+      assert.equal(domainRecord.owner.toString(), wallet.publicKey.toString());
+      assert.equal(domainRecord.addresses.length, 2);
+      
+    } catch (error) {
+      console.error("Error registering domain:", error);
+      throw error;
+    }
+  });
+
+  it("Can update domain addresses", async () => {
+    // 使用之前注册的测试域名
+    const domainName = "testdomain";
+    
+    // 计算域名记录的 PDA
+    const DOMAIN_RECORD_SEED = Buffer.from("domain");
+    const [domainRecordPDA] = anchor.web3.PublicKey.findProgramAddressSync(
+      [DOMAIN_RECORD_SEED, Buffer.from(domainName)],
+      program.programId
+    );
+    
+    // 创建新的区块链地址列表
+    const updatedAddresses = [
+      {
+        chain_id: 0, // Solana
+        address: wallet.publicKey.toBase58(),
+      },
+      {
+        chain_id: 1, // Ethereum
+        address: "0x1234567890123456789012345678901234567890",
+      },
+      {
+        chain_id: 2, // Sui
+        address: "0x7890123456789012345678901234567890123456",
+      }
+    ];
+    
+    try {
+      // 更新域名地址
+      const tx = await program.methods
+        .updateAddresses(
+          domainName,
+          updatedAddresses
+        )
+        // @ts-expect-error - Anchor naming convention issue
+        .accounts({
+          owner: wallet.publicKey,
+          domain_record: domainRecordPDA,
+        })
+        .rpc({ skipPreflight: true, commitment: "confirmed" });
+      
+      console.log("Address update transaction:", tx);
+      
+      // 获取并验证更新后的域名记录
+      const domainRecord = await program.account.domainRecord.fetch(domainRecordPDA);
+      
+      // 执行断言验证结果
+      assert.equal(domainRecord.addresses.length, 3);
+      assert.equal(domainRecord.addresses[2].chain_id, 2);
+      assert.equal(domainRecord.addresses[2].address, "0x7890123456789012345678901234567890123456");
+      
+      console.log("Domain addresses updated successfully");
+      
+    } catch (error) {
+      console.error("Error updating domain addresses:", error);
+      throw error;
+    }
+  });
 });
