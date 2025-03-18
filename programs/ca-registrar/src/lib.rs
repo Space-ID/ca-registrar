@@ -19,7 +19,7 @@ pub mod error;
 pub mod instructions;
 pub mod state;
 
-declare_id!("caSC6XNJhmZRZDmqCgjFFYJnhhGw4Z9MAd8X9xHdyA7");
+declare_id!("caidjyasybzQii3h2FE91uMwnrD3LqQHSgxDXbv8Yjc");
 
 #[program]
 pub mod ca_registrar {

@@ -4,14 +4,14 @@
 resolution = true
 skip-lint = false
 
-[programs.localnet]
-ca_registrar = "caSC6XNJhmZRZDmqCgjFFYJnhhGw4Z9MAd8X9xHdyA7"
-
 [programs.devnet]
-ca_registrar = "caSC6XNJhmZRZDmqCgjFFYJnhhGw4Z9MAd8X9xHdyA7"
+ca_registrar = "caidjyasybzQii3h2FE91uMwnrD3LqQHSgxDXbv8Yjc"
+
+[programs.localnet]
+ca_registrar = "caidjyasybzQii3h2FE91uMwnrD3LqQHSgxDXbv8Yjc"
 
 [programs.testnet]
-ca_registrar = "caSC6XNJhmZRZDmqCgjFFYJnhhGw4Z9MAd8X9xHdyA7"
+ca_registrar = "caidjyasybzQii3h2FE91uMwnrD3LqQHSgxDXbv8Yjc"
 
 [registry]
 url = "https://api.apr.dev"

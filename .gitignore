@@ -6,3 +6,10 @@ node_modules
 test-ledger
 .yarn
 temp/
+
+# Program keypairs
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!Cargo.json

@@ -62,12 +62,12 @@ describe("ca-registrar", () => {
     // Transfer some SOL to buyer and owner wallets
     await connection.requestAirdrop(
       buyerWallet.publicKey,
-      10 * anchor.web3.LAMPORTS_PER_SOL
+      2 * anchor.web3.LAMPORTS_PER_SOL
     );
     
     await connection.requestAirdrop(
       ownerWallet.publicKey,
-      10 * anchor.web3.LAMPORTS_PER_SOL
+      2 * anchor.web3.LAMPORTS_PER_SOL
     );
     
     // Wait for confirmation
