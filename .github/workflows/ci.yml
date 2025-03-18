@@ -39,7 +39,6 @@ jobs:
           export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
           cargo install --git https://github.com/coral-xyz/anchor avm --force
           avm install 0.30.1
-          avm use 0.30.1
           anchor --version
 
       - name: Install dependencies

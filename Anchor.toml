@@ -10,9 +10,6 @@ ca_registrar = "caidjyasybzQii3h2FE91uMwnrD3LqQHSgxDXbv8Yjc"
 [programs.localnet]
 ca_registrar = "caidjyasybzQii3h2FE91uMwnrD3LqQHSgxDXbv8Yjc"
 
-[programs.testnet]
-ca_registrar = "caidjyasybzQii3h2FE91uMwnrD3LqQHSgxDXbv8Yjc"
-
 [registry]
 url = "https://api.apr.dev"
 

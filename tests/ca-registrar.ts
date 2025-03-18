@@ -538,7 +538,7 @@ describe("ca-registrar", () => {
     const domainName = "neverregistered";
     const years = new BN(1);
     
-    // 创建新的区块链地址列表
+    // Create new blockchain address list
     const addresses = [
       {
         chainId: new BN(0), // Solana
@@ -546,7 +546,7 @@ describe("ca-registrar", () => {
       }
     ];
     
-    // 计算域名记录的 PDA
+    // Calculate domain record PDA
     const DOMAIN_RECORD_SEED = Buffer.from("domain");
     const [domainRecordAccount] = anchor.web3.PublicKey.findProgramAddressSync(
       [DOMAIN_RECORD_SEED, Buffer.from(domainName)],
@@ -554,7 +554,7 @@ describe("ca-registrar", () => {
     );
     
     try {
-      // 尝试直接购买一个从未注册过的域名（应该失败）
+      // Try to buy an unregistered domain directly (should fail)
       await buyerProgram.methods
         .buyDomain(
           domainName,
@@ -562,7 +562,6 @@ describe("ca-registrar", () => {
           addresses,
           buyerWallet.publicKey
         )
-        
         .accounts({
           buyer: buyerWallet.publicKey,
           domainRecord: domainRecordAccount,
@@ -572,12 +571,12 @@ describe("ca-registrar", () => {
         })
         .rpc();
       
-      // 如果执行到这里，测试应该失败
+      // If execution reaches here, test should fail
       assert.fail("Transaction should have failed - cannot buy unregistered domain");
     } catch (error) {
-      // 期望的错误行为
+      // Expected error behavior
       console.log("Expected error occurred (unregistered domain):", error.message);
-      // 错误信息应该包含账户未初始化相关内容
+      // Error message should contain account initialization related content
       assert.ok(
         error.message.includes("AccountNotInitialized") || 
         error.message.includes("account not initialized") || 
@@ -672,7 +671,7 @@ describe("ca-registrar", () => {
     }
   });
 
-  // 测试：管理员可以成功更新价格
+  // Test: Authority can successfully update price
   it("Authority can update price", async () => {
     try {
       // get current base price
@@ -680,7 +679,7 @@ describe("ca-registrar", () => {
       const oldPrice = programState.basePriceUsd;
       console.log("Current base price:", oldPrice.toString(), "USD cents");
       
-      // set new base price (增加 100 美分)
+      // set new base price (increase by 100 cents)
       const newPrice = oldPrice.add(new BN(100));
       
       // call update_price with admin wallet
