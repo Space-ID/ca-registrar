@@ -5,20 +5,26 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-ca_registrar = "6rsq6P7d7WH1zF3DWJYzcfxTprUdL5q25AcXw8ZoCvDo"
+ca_registrar = "caSC6XNJhmZRZDmqCgjFFYJnhhGw4Z9MAd8X9xHdyA7"
+
+[programs.devnet]
+ca_registrar = "caSC6XNJhmZRZDmqCgjFFYJnhhGw4Z9MAd8X9xHdyA7"
+
+[programs.testnet]
+ca_registrar = "caSC6XNJhmZRZDmqCgjFFYJnhhGw4Z9MAd8X9xHdyA7"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "Localnet"
+cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
 
 [test]
-startup_wait = 60000
+startup_wait = 5000
 shutdown_wait = 2000
 upgradeable = false
 
