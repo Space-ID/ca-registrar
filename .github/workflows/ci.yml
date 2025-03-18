@@ -1,0 +1,52 @@
+name: CA-Registrar CI
+
+on: [push, pull_request]
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install Rust and Cargo
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          source "$HOME/.cargo/env"
+          rustc --version
+
+      - name: Install Solana CLI
+        shell: bash
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
+          source "$HOME/.cargo/env"
+          solana --version
+          solana-keygen new --no-bip39-passphrase
+
+      - name: Install Anchor via AVM
+        shell: bash
+        run: |
+          source "$HOME/.cargo/env"
+          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
+          cargo install --git https://github.com/coral-xyz/anchor avm --force
+          avm install 0.30.1
+          anchor --version
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build program
+        shell: bash
+        run: |
+          source "$HOME/.cargo/env"
+          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
+          anchor build

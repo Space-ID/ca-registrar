@@ -19,7 +19,7 @@ pub mod error;
 pub mod instructions;
 pub mod state;
 
-declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
+declare_id!("caidjyasybzQii3h2FE91uMwnrD3LqQHSgxDXbv8Yjc");
 
 #[program]
 pub mod ca_registrar {
@@ -53,9 +53,8 @@ pub mod ca_registrar {
 
     pub fn withdraw_fees(
         context: Context<WithdrawFeesAccountConstraints>, 
-        amount: u64,
     ) -> Result<()> {
-        withdraw_fees_handler(context, amount)
+        withdraw_fees_handler(context)
     }
 
     pub fn register_domain(
