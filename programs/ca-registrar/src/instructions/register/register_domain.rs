@@ -9,6 +9,19 @@ use crate::instructions::register::utils::*;
 use crate::error::CaRegistrarError;
 use pyth_solana_receiver_sdk::price_update::PriceUpdateV2;
 
+/// Event emitted when a domain is registered
+#[event]
+pub struct RegisterDomainEvent {
+    pub domain_name: String,
+    pub buyer: Pubkey,
+    pub owner: Pubkey,
+    pub years: u64,
+    pub fee: u64,
+    pub registration_timestamp: i64,
+    pub expiry_timestamp: i64,
+    pub addresses_count: u8,
+}
+
 /// Account constraints for domain registration instruction
 /// 
 /// This instruction allows users to register a new .ca domain, provided the domain has never been registered before.
@@ -96,6 +109,10 @@ pub fn register_domain_handler(
         yearly_fee,
     )?;
 
+    // for event
+    let domain_name_for_event = domain_name.clone();
+    let addresses_count = addresses.len() as u8;
+    
     // Update domain record
     let domain_record = &mut context.accounts.domain_record;
     domain_record.domain_name = domain_name;
@@ -111,6 +128,18 @@ pub fn register_domain_handler(
 
     msg!("Domain {} registered successfully for {} years with owner {}", 
         domain_record.domain_name, years, owner);
+    
+    // Emit event with all parameters
+    emit!(RegisterDomainEvent {
+        domain_name: domain_name_for_event,
+        buyer: context.accounts.buyer.key(),
+        owner,
+        years,
+        fee: yearly_fee,
+        registration_timestamp: current_timestamp,
+        expiry_timestamp: domain_record.expiry_timestamp,
+        addresses_count,
+    });
     
     Ok(())
 } 

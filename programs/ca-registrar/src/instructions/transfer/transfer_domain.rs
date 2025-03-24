@@ -6,6 +6,14 @@ use crate::state::*;
 use crate::instructions::utils::*;
 use crate::error::CaRegistrarError;
 
+/// Event emitted when a domain is transferred to a new owner
+#[event]
+pub struct TransferDomainEvent {
+    pub domain_name: String,
+    pub previous_owner: Pubkey,
+    pub new_owner: Pubkey,
+}
+
 /// Account constraints for transferring domain ownership instruction
 /// 
 /// This instruction allows domain owners to transfer their domain to another user.
@@ -47,10 +55,21 @@ pub fn transfer_domain_handler(
         CaRegistrarError::DomainExpired
     );
     
+    // for event
+    let domain_name = domain_record.domain_name.clone();
+    let previous_owner = domain_record.owner;
+    
     // Update domain owner
     domain_record.owner = new_owner;
     
     msg!("Transferred domain {} to new owner {}", domain_record.domain_name, new_owner);
+    
+    // emit event
+    emit!(TransferDomainEvent {
+        domain_name,
+        previous_owner,
+        new_owner,
+    });
     
     Ok(())
 } 

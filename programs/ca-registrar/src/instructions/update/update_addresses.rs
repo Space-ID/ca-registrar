@@ -6,6 +6,15 @@ use crate::state::*;
 use crate::error::CaRegistrarError;
 use crate::instructions::utils::*;
 
+/// Event emitted when domain addresses are updated
+#[event]
+pub struct UpdateAddressesEvent {
+    pub domain_name: String,
+    pub owner: Pubkey,
+    pub old_addresses_count: u8,
+    pub new_addresses_count: u8,
+}
+
 /// Account constraints for updating domain addresses instruction
 /// 
 /// This instruction allows domain owners to update the list of blockchain addresses associated with the domain.
@@ -54,11 +63,24 @@ pub fn update_addresses_handler(
         !domain_record.is_expired(current_timestamp),
         CaRegistrarError::DomainExpired
     );
+
+    // for event
+    let old_addresses_count = domain_record.addresses.len() as u8;
+    let domain_name = domain_record.domain_name.clone();
+    let owner = domain_record.owner;
     
     // Update address list in domain record
     domain_record.addresses = addresses;
     
     msg!("Updated addresses for domain {}", domain_record.domain_name);
+    
+    // emit event
+    emit!(UpdateAddressesEvent {
+        domain_name,
+        owner,
+        old_addresses_count,
+        new_addresses_count: domain_record.addresses.len() as u8,
+    });
     
     Ok(())
 } 

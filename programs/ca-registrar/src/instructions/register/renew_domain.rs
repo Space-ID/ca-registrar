@@ -9,6 +9,18 @@ use crate::instructions::register::utils::*;
 use crate::error::CaRegistrarError;
 use pyth_solana_receiver_sdk::price_update::PriceUpdateV2;
 
+/// Event emitted when a domain is renewed
+#[event]
+pub struct RenewDomainEvent {
+    pub domain_name: String,
+    pub payer: Pubkey,
+    pub owner: Pubkey,
+    pub years: u64,
+    pub fee: u64,
+    pub old_expiry: i64,
+    pub new_expiry: i64,
+}
+
 /// Account constraints for domain renewal instruction
 /// 
 /// This instruction allows anyone to renew any domain that is not expired or is within the grace period.
@@ -97,6 +109,11 @@ pub fn renew_domain_handler(
         yearly_fee,
     )?;
 
+    // for event
+    let old_expiry_timestamp = domain_record.expiry_timestamp;
+    let domain_name = domain_record.domain_name.clone();
+    let owner = domain_record.owner;
+
     // Update domain expiry time
     // If current time is past the original expiry time, calculate from current time
     // Otherwise, add years to the original expiry time
@@ -109,6 +126,16 @@ pub fn renew_domain_handler(
     domain_record.expiry_timestamp = new_expiry_timestamp;
     
     msg!("Domain {} renewed successfully for {} years", domain_record.domain_name, years);
+    
+    emit!(RenewDomainEvent {
+        domain_name,
+        payer: context.accounts.payer.key(),
+        owner,
+        years,
+        fee: yearly_fee,
+        old_expiry: old_expiry_timestamp,
+        new_expiry: new_expiry_timestamp,
+    });
     
     Ok(())
 } 

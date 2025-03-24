@@ -9,6 +9,20 @@ use crate::instructions::register::utils::*;
 use crate::error::CaRegistrarError;
 use pyth_solana_receiver_sdk::price_update::PriceUpdateV2;
 
+/// Event emitted when a domain is purchased after expiration
+#[event]
+pub struct BuyDomainEvent {
+    pub domain_name: String,
+    pub buyer: Pubkey,
+    pub previous_owner: Pubkey,
+    pub new_owner: Pubkey,
+    pub years: u64,
+    pub fee: u64,
+    pub registration_timestamp: i64,
+    pub expiry_timestamp: i64,
+    pub addresses_count: u8,
+}
+
 /// Account constraints for buying an expired domain instruction
 /// 
 /// This instruction allows users to purchase domains that have expired and are beyond the grace period.
@@ -101,6 +115,11 @@ pub fn buy_domain_handler(
         yearly_fee,
     )?;
 
+    // for event
+    let domain_name = domain_record.domain_name.clone();
+    let previous_owner = domain_record.owner;
+    let addresses_count = addresses.len() as u8;
+    
     // Reset and update domain record
     domain_record.owner = owner;
     domain_record.registration_timestamp = current_timestamp;
@@ -109,6 +128,19 @@ pub fn buy_domain_handler(
 
     msg!("Domain {} purchased successfully for {} years with owner {}", 
         domain_record.domain_name, years, owner);
+        
+    // emit event
+    emit!(BuyDomainEvent {
+        domain_name,
+        buyer: context.accounts.buyer.key(),
+        previous_owner,
+        new_owner: owner,
+        years,
+        fee: yearly_fee,
+        registration_timestamp: current_timestamp,
+        expiry_timestamp: domain_record.expiry_timestamp,
+        addresses_count,
+    });
     
     Ok(())
 } 
