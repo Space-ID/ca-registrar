@@ -987,4 +987,140 @@ describe("ca-registrar", () => {
       throw error;
     }
   });
+
+  // 添加新的测试用例，使用update_expiry将testdomain设为过期，然后测试buy_domain功能
+  it("Authority can update domain expiry and buyer can purchase expired domain", async () => {
+    try {
+      // 使用我们之前已经创建的testdomain
+      const domainName = "testdomain";
+      
+      // 计算domain record PDA
+      const DOMAIN_RECORD_SEED = Buffer.from("domain");
+      const [domainRecordAccount] = anchor.web3.PublicKey.findProgramAddressSync(
+        [DOMAIN_RECORD_SEED, Buffer.from(domainName)],
+        authorityProgram.programId
+      );
+      
+      // 获取当前域名信息
+      const domainRecord = await authorityProgram.account.domainRecord.fetch(domainRecordAccount);
+      console.log("Current domain owner:", domainRecord.owner.toString());
+      console.log("Current expiry timestamp:", new Date(domainRecord.expiryTimestamp.toNumber() * 1000).toISOString());
+      
+      // 获取当前时间戳
+      const now = Math.floor(Date.now() / 1000);
+      
+      // 计算新的过期时间，设置为30天前
+      const thirtyDaysInSeconds = 30 * 24 * 60 * 60;
+      const newExpiryTimestamp = new BN(now - thirtyDaysInSeconds);
+      
+      console.log("Setting domain expiry to:", new Date(newExpiryTimestamp.toNumber() * 1000).toISOString());
+      
+      // 调用update_expiry指令，更新过期时间
+      const updateTx = await authorityProgram.methods
+        .updateExpiry(
+          newExpiryTimestamp
+        )
+        .accounts({
+          authority: authorityWallet.publicKey,
+          programState: programStateAccount,
+          domainRecord: domainRecordAccount,
+        })
+        .rpc({ skipPreflight: true, commitment: "confirmed" });
+      
+      console.log("Update expiry transaction:", updateTx);
+      
+      // 验证过期时间已更新
+      const updatedDomainRecord = await authorityProgram.account.domainRecord.fetch(domainRecordAccount);
+      console.log("New expiry timestamp:", new Date(updatedDomainRecord.expiryTimestamp.toNumber() * 1000).toISOString());
+      
+      // 确认域名现在处于过期状态
+      assert.isBelow(
+        updatedDomainRecord.expiryTimestamp.toNumber(),
+        now,
+        "Domain should be expired"
+      );
+      
+      // 准备购买过期域名的相关数据
+      const buyYears = new BN(2);
+      const buyerAddresses = [
+        {
+          chainId: new BN(0), // Solana
+          address: buyerWallet.publicKey.toBase58(),
+        },
+        {
+          chainId: new BN(3), // 其他链
+          address: "0xfedcba9876543210fedcba9876543210fedcba98",
+        }
+      ];
+      
+      // 获取程序状态，用于确认grace period
+      const programState = await authorityProgram.account.programState.fetch(programStateAccount);
+      console.log("Current grace period:", programState.gracePeriodSeconds.toString(), "seconds");
+      
+      // 确保域名已经过期且超过grace period
+      // 假设grace period少于30天
+      assert.isBelow(
+        programState.gracePeriodSeconds.toNumber(),
+        thirtyDaysInSeconds,
+        "This test assumes grace period is less than 30 days"
+      );
+      
+      // 执行buy_domain购买过期域名
+      const buyTx = await buyerProgram.methods
+        .buyDomain(
+          domainName,
+          buyYears,
+          buyerAddresses,
+          buyerWallet.publicKey // 新的所有者
+        )
+        .accounts({
+          buyer: buyerWallet.publicKey,
+          domainRecord: domainRecordAccount,
+          programState: programStateAccount,
+          pythPriceUpdate: solUsdPriceFeedAccount,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .rpc({ skipPreflight: true, commitment: "confirmed" });
+      
+      console.log("Domain purchase transaction:", buyTx);
+      
+      // 验证域名所有权已转移
+      const purchasedDomainRecord = await authorityProgram.account.domainRecord.fetch(domainRecordAccount);
+      console.log("Domain owner after purchase:", purchasedDomainRecord.owner.toString());
+      console.log("New expiry timestamp after purchase:", 
+                  new Date(purchasedDomainRecord.expiryTimestamp.toNumber() * 1000).toISOString());
+      
+      // 验证新的所有者
+      assert.equal(
+        purchasedDomainRecord.owner.toString(),
+        buyerWallet.publicKey.toString(),
+        "Domain owner should be updated to buyer"
+      );
+      
+      // 验证新的过期时间是在未来
+      assert.isAbove(
+        purchasedDomainRecord.expiryTimestamp.toNumber(),
+        now,
+        "New expiry should be in the future"
+      );
+      
+      // 验证域名的地址记录已更新
+      assert.equal(
+        purchasedDomainRecord.addresses.length,
+        2,
+        "Domain should have 2 addresses"
+      );
+      assert.equal(
+        purchasedDomainRecord.addresses[1].address,
+        "0xfedcba9876543210fedcba9876543210fedcba98",
+        "Second address should match"
+      );
+      
+      console.log("Domain successfully purchased after expiry!");
+      
+    } catch (error) {
+      console.error("Error in test:", error);
+      throw error;
+    }
+  });
 });

@@ -51,6 +51,14 @@ pub mod ca_registrar {
         update_grace_period_handler(context, grace_period_seconds)
     }
 
+    pub fn update_expiry(
+        context: Context<UpdateExpiryAccountConstraints>, 
+        domain_name: String,
+        new_expiry_timestamp: i64,
+    ) -> Result<()> {
+        update_expiry_handler(context, domain_name, new_expiry_timestamp)
+    }
+
     pub fn withdraw_fees(
         context: Context<WithdrawFeesAccountConstraints>, 
     ) -> Result<()> {

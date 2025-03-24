@@ -11,4 +11,7 @@ pub use update_grace_period::*;
 mod update_grace_period;
 
 pub use withdraw_fees::*;
-mod withdraw_fees; 
+mod withdraw_fees;
+
+pub use update_expiry::*;
+mod update_expiry; 
